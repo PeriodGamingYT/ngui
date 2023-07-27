@@ -1,0 +1,9 @@
+I feel the design of GUI libraries today is too complex.
+Things like GTK+, QT, and all of their evil friends use the same, bloated design.
+This repo shows that it doesn't have to be that way, the code in here is a reference implementation of the very core of a GUI library.
+The design of my GUI library has a buffer, which can be contained by a master frame or a sub-frame.
+These frames have callbacks and those callbacks have parameters, both of which are stored in the frame.
+These callbacks will modify the frame. 
+So a button could have the callbacks of a background, border, text, and maybe a button callback.
+The reference implementation may have some bugs or not work.
+Its main purpose is for other people to make GUI libraries based off of this implementation.

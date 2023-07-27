@@ -1,5 +1,5 @@
-#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define NOT_NULL_FUNC(_x, _y) \
 	if((_x) != NULL) { \
@@ -36,18 +36,51 @@ typedef struct {
 } buffer_t;
 
 struct frame_struct;
-typedef void (*callback_t)(struct frame_struct *);
+typedef struct {
+	void *ptr;
+	int size;
+} params_t;
+
+params_t *params_make(void *ptr, int size) {
+	params_t *params = malloc(sizeof(params_t));
+	NULL_RET_NULL(params);
+	params->ptr = malloc(size);
+	if(params->ptr == NULL) {
+		free(params);
+		return NULL;
+	}
+	
+	memcpy(params->ptr, ptr, size);
+	params->size = size;
+	return params;
+}
+
+void params_free(params_t **params) {
+	NULL_RET(params);
+	NULL_RET(*params);
+	NOT_NULL_FREE((*params)->ptr);
+	NOT_NULL_FREE(*params);
+}
+
+typedef void (*callback_t)(struct frame_struct *, params_t *params);
 typedef struct frame_struct {
 	select_t select; // select is only used if is_sub is true.
 	buffer_t *buffer;
 	int is_sub;
 	callback_t *callbacks;
+	params_t **params;
 	int callbacks_size;
 } frame_t;
 
 buffer_t *buffer_make(vec_t size) {
 	buffer_t *buffer = malloc(sizeof(buffer_t));
+	NULL_RET_NULL(buffer);
 	buffer->data = malloc(sizeof(int) * (int)(size.x) * (int)(size.y));
+	if(buffer->data == NULL) {
+		free(buffer);
+		return NULL;
+	}
+	
 	buffer->size = size;
 	return buffer;
 }
@@ -62,10 +95,12 @@ void buffer_free(buffer_t **buffer) {
 frame_t *frame_make(buffer_t *buffer) {
 	NULL_RET_NULL(buffer);
 	frame_t *frame = malloc(sizeof(frame_t));
+	NULL_RET_NULL(frame);
 	frame->select = (select_t) { (vec_t) { 0, 0 }, buffer->size };
 	frame->buffer = buffer;
 	frame->is_sub = 0;
 	frame->callbacks = NULL;
+	frame->params = NULL;
 	frame->callbacks_size = 0;
 	return frame;
 }
@@ -73,6 +108,16 @@ frame_t *frame_make(buffer_t *buffer) {
 void frame_free(frame_t **frame) {
 	NULL_RET(frame);
 	NULL_RET(*frame);
+	for(int i = 0; i < (*frame)->callbacks_size && (*frame)->params; i++) {
+		if((*frame)->params[i] == NULL) {
+			continue;
+		}
+
+		params_free(&((*frame)->params[i]));
+	}
+
+	NOT_NULL_FREE((*frame)->params);
+	NOT_NULL_FREE((*frame)->callbacks);
 	NOT_NULL_FREE(*frame);
 }
 
@@ -86,12 +131,25 @@ void *safe_realloc(void *ptr, int size) {
 	return tmp;
 }
 
-void frame_push_callback(frame_t *frame, callback_t callback) {
+void frame_push_callback(frame_t *frame, callback_t callback, params_t *params) {
 	NULL_RET(frame);
 	frame->callbacks_size++;
 	frame->callbacks = safe_realloc(frame->callbacks, sizeof(callback_t) * frame->callbacks_size);
-	NULL_RET(frame->callbacks);
+	if(frame->callbacks == NULL) {
+		NOT_NULL_FREE(frame->params);
+		frame->callbacks_size = 0;
+		return;
+	}
+	
 	frame->callbacks[frame->callbacks_size - 1] = callback;
+	frame->params = safe_realloc(frame->params, sizeof(params_t *) * frame->callbacks_size);
+	if(frame->params == NULL) {
+		free(frame->callbacks);
+		frame->callbacks_size = 0;
+		return;
+	}
+
+	frame->params[frame->callbacks_size - 1] = params;
 }
 
 void frame_pop_callback(frame_t *frame) {
@@ -103,6 +161,12 @@ void frame_pop_callback(frame_t *frame) {
 	frame->callbacks_size--;
 	frame->callbacks[frame->callbacks_size] = NULL;
 	frame->callbacks = safe_realloc(frame->callbacks, sizeof(callback_t) * frame->callbacks_size);
+	frame->params = safe_realloc(frame->params, sizeof(params_t *) * frame->callbacks_size);
+	if(frame->callbacks == NULL || frame->params == NULL) {
+		NOT_NULL_FREE(frame->callbacks);
+		NOT_NULL_FREE(frame->params);
+		frame->callbacks_size = 0;
+	}
 }
 
 void frame_remove_callback_index(frame_t *frame, int index) {
@@ -175,11 +239,6 @@ void frame_clear(frame_t *frame) {
 void frame_update(frame_t *frame) {
 	frame_clear(frame);
 	for(int i = 0; i < frame->callbacks_size; i++) {
-		frame->callbacks[i](frame);
+		frame->callbacks[i](frame, frame->params[i]);
 	}
-}
-
-int main() {
-	printf("It Works!\n");
-	return 0;
 }
